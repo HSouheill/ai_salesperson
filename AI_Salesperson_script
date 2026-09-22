@@ -1,0 +1,320 @@
+AI Salesperson — AI Sales Employee
+
+Imagine you could hire a salesperson that works 24 hours a day, never gets tired, and can handle hundreds of potential customers at the same time.
+
+That's the idea behind AI Salesperson.
+
+AI Salesperson is an AI-powered sales platform that allows any business to create and deploy its own AI sales agent without needing technical knowledge.
+
+The customer simply creates an account, enters information about their business, products, services, target customers, countries, and sales goals.
+
+For example, imagine a software development company.
+
+They tell AI Salesperson:
+
+«"We build mobile applications and websites for restaurants in Lebanon and the UAE."»
+
+AI Salesperson then creates a customized sales strategy.
+
+It identifies the company's ideal customers, researches potential businesses using permitted data sources and integrations, analyzes their public information, identifies potential business needs, and generates personalized outreach.
+
+Instead of sending the same generic message to every company, AI Salesperson can create a different message for each qualified prospect.
+
+For example:
+
+«"Hi Ahmed, I noticed that your restaurant recently opened a second location. We help restaurants build branded ordering applications that allow customers to order directly from their phones."»
+
+The important part is that AI Salesperson doesn't stop after sending the first message.
+
+It can manage the entire sales process.
+
+It can understand replies, answer common questions, identify buying intent, qualify leads, handle objections, follow up, and move qualified prospects into the CRM.
+
+For example, if a potential customer asks:
+
+«"How much does it cost?"»
+
+AI Salesperson can respond appropriately and ask qualification questions.
+
+If the customer says:
+
+«"We already have a POS system."»
+
+AI Salesperson can recognize that as an objection and continue the conversation instead of simply repeating the sales pitch.
+
+Once the prospect becomes interested, AI Salesperson can help schedule a meeting with the sales team.
+
+The entire process becomes:
+
+Find → Research → Personalize → Engage → Qualify → Follow Up → Book Meeting → Convert
+
+And this isn't limited to software companies.
+
+A wholesaler could use AI Salesperson to find supermarkets.
+
+A real-estate company could use it to identify potential buyers or businesses.
+
+A marketing agency could use it to find companies that need marketing services.
+
+A logistics company could use it to identify businesses that need delivery services.
+
+The customer simply tells AI Salesperson what they sell and who they want to sell to.
+
+The AI builds the sales strategy around that information.
+
+---
+
+The Dashboard
+
+When the customer logs into AI Salesperson, they don't just see a chatbot.
+
+They see their entire AI sales operation.
+
+The dashboard could show:
+
+2,431 prospects identified
+
+387 prospects researched
+
+142 outreach messages prepared
+
+31 active conversations
+
+12 qualified leads
+
+7 meetings booked
+
+$18,400 estimated pipeline
+
+The customer can immediately understand what their AI sales agent is doing.
+
+---
+
+AI Lead Scoring
+
+AI Salesperson can also score potential customers.
+
+For example:
+
+ABC Restaurant — 94/100
+
+Why?
+
+- Four locations
+- Active online presence
+- No online ordering system
+- Recently expanded
+- Matches the customer's ideal customer profile
+
+AI Salesperson can explain exactly why the lead is valuable instead of simply giving the customer a random list of companies.
+
+---
+
+AI Sales Brain
+
+One of the most important components is the AI Sales Brain.
+
+The customer provides information about their business, and AI Salesperson automatically creates:
+
+- Ideal customer profile
+- Sales strategy
+- Target industries
+- Pain points
+- Qualification questions
+- Outreach messages
+- Follow-up sequences
+- Objection handling
+- Closing strategies
+
+So the customer doesn't need to understand sales automation.
+
+They simply describe their business.
+
+AI Salesperson builds the strategy.
+
+---
+
+Easy Onboarding
+
+The goal is to make onboarding take only a few minutes.
+
+The customer enters their website.
+
+AI Salesperson analyzes the permitted public information and helps extract:
+
+- Products
+- Services
+- Target market
+- Company description
+- Value proposition
+- Frequently asked questions
+
+Then AI Salesperson asks:
+
+«"Who do you want to sell to?"»
+
+The customer selects industries, locations, company sizes, and other criteria.
+
+Then AI Salesperson generates the sales strategy.
+
+Finally:
+
+Launch Sales Agent
+
+And the AI sales operation is ready.
+
+---
+
+Multiple Sales Agents
+
+Businesses could create multiple specialized agents.
+
+For example:
+
+Restaurant Hunter
+
+Finds restaurants that need software.
+
+Supermarket Hunter
+
+Finds supermarkets interested in wholesale products.
+
+Real Estate Agent
+
+Finds potential property customers.
+
+Enterprise Agent
+
+Targets larger companies.
+
+Each agent can have its own strategy, target audience, personality, campaign, and workflow.
+
+---
+
+Rent or Buy
+
+AI Salesperson can use a SaaS model.
+
+For example:
+
+Starter
+
+$49/month
+
+One sales agent and basic prospecting.
+
+Growth
+
+$149/month
+
+Multiple campaigns, lead intelligence, AI conversations, CRM, and analytics.
+
+Pro
+
+$399/month
+
+Multiple agents, advanced automation, integrations, API access, and higher usage limits.
+
+And for larger companies, we can offer dedicated infrastructure or self-hosted deployments.
+
+---
+
+White-Label AI Salesperson
+
+There is another major opportunity.
+
+Marketing agencies could rent AI Salesperson and provide it to their own customers.
+
+For example:
+
+An agency purchases AI Salesperson Enterprise.
+
+Then they create:
+
+Client A — Restaurant Sales Agent
+
+Client B — Real Estate Sales Agent
+
+Client C — Software Sales Agent
+
+Each customer gets their own dashboard, branding, AI agents, campaigns, and CRM.
+
+This turns AI Salesperson into infrastructure that other companies can resell.
+
+---
+
+The Technology
+
+The platform can be built as a multi-tenant SaaS architecture.
+
+The frontend can use Next.js.
+
+The backend can use Go.
+
+PostgreSQL can handle the core business data.
+
+Redis can handle queues and real-time workloads.
+
+Background workers can perform research, lead processing, campaign execution, and other asynchronous tasks.
+
+An AI gateway can allow the platform to use different AI models without locking the entire system to a single provider.
+
+Most importantly, integrations should be built using a modular adapter architecture.
+
+For example:
+
+Prospecting Sources
+
+→ Business directories
+
+→ Customer-provided lists
+
+→ Public websites
+
+→ Approved APIs
+
+→ CRM data
+
+Communication Channels
+
+→ Email
+
+→ WhatsApp
+
+→ Approved social integrations
+
+→ Human approval workflows
+
+This is important because every platform has different APIs, permissions, automation policies, and rate limits.
+
+AI Salesperson should automate only what the relevant platform permits.
+
+---
+
+The Vision
+
+The ultimate goal isn't to build another chatbot.
+
+The goal is to build an AI Sales Workforce.
+
+A company signs up.
+
+It describes what it sells.
+
+It defines who it wants to sell to.
+
+AI Salesperson builds the strategy.
+
+The AI finds appropriate prospects through permitted sources, researches them, personalizes outreach, manages conversations, qualifies leads, follows up, and sends opportunities to the company's sales team.
+
+The business doesn't need to hire five different people to perform repetitive prospecting work.
+
+They can deploy specialized AI sales agents whenever they need them.
+
+The vision is simple:
+
+Give us your business.
+
+Tell us who you want to sell to.
+
+We'll build your AI sales operation.
