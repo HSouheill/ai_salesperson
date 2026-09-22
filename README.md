@@ -92,3 +92,4 @@ cd web && npx tsc --noEmit && npm run build
   social networks or other sites that forbid it.
 - No estimated *time-zone-aware* sending windows; no email open/click tracking; single-user organizations (no team seats/roles);
   the auth token is kept in `localStorage` (move to an httpOnly cookie before real customers); rate limiting is per instance.
+# ai_salesperson
