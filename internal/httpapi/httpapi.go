@@ -9,47 +9,63 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/hussein/ai-salesperson/internal/ai"
 	"github.com/hussein/ai-salesperson/internal/billing"
 	"github.com/hussein/ai-salesperson/internal/channels"
 	"github.com/hussein/ai-salesperson/internal/config"
+	"github.com/hussein/ai-salesperson/internal/errtrack"
 	"github.com/hussein/ai-salesperson/internal/inbound"
 	"github.com/hussein/ai-salesperson/internal/jobs"
 	"github.com/hussein/ai-salesperson/internal/queue"
+	"github.com/hussein/ai-salesperson/internal/ratelimit"
 	"github.com/hussein/ai-salesperson/internal/sales"
 	"github.com/hussein/ai-salesperson/internal/store"
 )
 
 type API struct {
-	cfg         config.Config
-	store       store.Store
-	sales       *sales.Service
-	jobs        *jobs.Runner
-	queue       *queue.Queue
-	poller      *inbound.Poller
-	stripe      *billing.Stripe
-	authRL      *limiter
-	testLimiter *limiter
+	cfg    config.Config
+	store  store.Store
+	sales  *sales.Service
+	jobs   *jobs.Runner
+	queue  *queue.Queue
+	poller *inbound.Poller
+	stripe *billing.Stripe
+	rl     ratelimit.Limiter
 }
 
-func New(cfg config.Config, st store.Store, svc *sales.Service, jr *jobs.Runner, q *queue.Queue, poller *inbound.Poller, stripe *billing.Stripe) http.Handler {
-	a := &API{cfg: cfg, store: st, sales: svc, jobs: jr, queue: q, poller: poller, stripe: stripe, authRL: newLimiter(10, time.Minute), testLimiter: newLimiter(5, time.Minute)}
+// New builds the HTTP handler. rl is the shared rate limiter (nil picks an
+// in-process one, matching the behaviour before this was configurable).
+func New(cfg config.Config, st store.Store, svc *sales.Service, jr *jobs.Runner, q *queue.Queue, poller *inbound.Poller, stripe *billing.Stripe, rl ratelimit.Limiter) http.Handler {
+	if rl == nil {
+		rl = ratelimit.NewMemory()
+	}
+	a := &API{cfg: cfg, store: st, sales: svc, jobs: jr, queue: q, poller: poller, stripe: stripe, rl: rl}
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
+	mux.HandleFunc("GET /healthz", a.healthz)
 	mux.HandleFunc("GET /v1/plans", a.plans)
 	mux.HandleFunc("GET /v1/public/branding", a.publicBranding)
-	mux.Handle("POST /v1/auth/signup", a.rateLimited(http.HandlerFunc(a.signup)))
-	mux.Handle("POST /v1/auth/login", a.rateLimited(http.HandlerFunc(a.login)))
+	mux.Handle("POST /v1/auth/signup", a.rateLimited("auth", 10, time.Minute, http.HandlerFunc(a.signup)))
+	mux.Handle("POST /v1/auth/login", a.rateLimited("auth", 10, time.Minute, http.HandlerFunc(a.login)))
+
+	adminAuthed := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, a.requireAdmin(h)) }
+	adminAuthed("GET /v1/admin/orgs", a.adminListOrgs)
+	adminAuthed("POST /v1/admin/orgs/{id}/suspend", a.adminSuspend)
+	adminAuthed("POST /v1/admin/orgs/{id}/unsuspend", a.adminUnsuspend)
+	adminAuthed("GET /v1/admin/health", a.adminHealth)
 
 	// Provider callbacks: authenticated by an unguessable per-org token or a signature, not a login.
 	mux.HandleFunc("POST /v1/inbound/email/{token}", a.inboundEmail)
 	mux.HandleFunc("GET /v1/inbound/whatsapp/{token}", a.whatsappVerify)
 	mux.HandleFunc("POST /v1/inbound/whatsapp/{token}", a.whatsappInbound)
 	mux.HandleFunc("POST /v1/billing/webhook", a.billingWebhook)
+
+	// RFC 8058 one-click unsubscribe: the link in List-Unsubscribe-Post, no
+	// login required. GET is also accepted for a human clicking the link.
+	mux.HandleFunc("POST /v1/unsubscribe/{org}/{prospect}/{token}", a.unsubscribe)
+	mux.HandleFunc("GET /v1/unsubscribe/{org}/{prospect}/{token}", a.unsubscribe)
 
 	authed := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, a.requireAuth(h)) }
 	authed("GET /v1/me", a.me)
@@ -100,7 +116,23 @@ func New(cfg config.Config, st store.Store, svc *sales.Service, jr *jobs.Runner,
 	authed("POST /v1/messages/{id}/review", a.reviewMessage)
 	authed("GET /v1/jobs/{id}", a.getJob)
 
-	return a.cors(logRequests(mux))
+	return a.cors(logRequests(recoverPanics(mux)))
+}
+
+// recoverPanics turns a panic into a clean 500 instead of a torn connection
+// (net/http's own per-request recovery just logs and drops the connection),
+// and reports it to Sentry if configured.
+func recoverPanics(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				errtrack.Recover(r, rec)
+				log.Printf("panic serving %s %s: %v", r.Method, r.URL.Path, rec)
+				writeErr(w, http.StatusInternalServerError, "internal error")
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (a *API) cors(next http.Handler) http.Handler {
@@ -140,43 +172,9 @@ func logRequests(next http.Handler) http.Handler {
 	})
 }
 
-// ---- rate limiting (per client IP, in memory) --------------------------------
-
-type limiter struct {
-	mu     sync.Mutex
-	max    int
-	window time.Duration
-	hits   map[string][]time.Time
-}
-
-func newLimiter(max int, window time.Duration) *limiter {
-	return &limiter{max: max, window: window, hits: map[string][]time.Time{}}
-}
-
-func (l *limiter) allow(key string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	now := time.Now()
-	recent := l.hits[key][:0]
-	for _, t := range l.hits[key] {
-		if now.Sub(t) < l.window {
-			recent = append(recent, t)
-		}
-	}
-	if len(recent) >= l.max {
-		l.hits[key] = recent
-		return false
-	}
-	l.hits[key] = append(recent, now)
-	if len(l.hits) > 10000 { // bound memory
-		for k, v := range l.hits {
-			if len(v) == 0 || now.Sub(v[len(v)-1]) > l.window {
-				delete(l.hits, k)
-			}
-		}
-	}
-	return true
-}
+// ---- rate limiting ------------------------------------------------------------
+// Backed by Redis when configured, so the limit holds across every instance;
+// otherwise falls back to a single-instance in-process limiter (see internal/ratelimit).
 
 func (a *API) clientIP(r *http.Request) string {
 	if a.cfg.TrustProxy {
@@ -191,9 +189,11 @@ func (a *API) clientIP(r *http.Request) string {
 	return host
 }
 
-func (a *API) rateLimited(next http.Handler) http.Handler {
+// rateLimited limits by client IP, namespaced by bucket so different routes
+// (auth, settings tests, …) don't share one budget.
+func (a *API) rateLimited(bucket string, max int, window time.Duration, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !a.authRL.allow(a.clientIP(r)) {
+		if !a.rl.Allow(r.Context(), bucket+":"+a.clientIP(r), max, window) {
 			w.Header().Set("Retry-After", "60")
 			writeErr(w, http.StatusTooManyRequests, "too many attempts; try again in a minute")
 			return
@@ -245,6 +245,7 @@ func fail(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusGatewayTimeout, "request timed out")
 	default:
 		log.Printf("internal error: %v", err)
+		errtrack.Capture(err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
 	}
 }
@@ -265,4 +266,6 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 func logf(format string, args ...any) { log.Printf(format, args...) }
 
 // testRL allows a handful of connection tests per organization per minute.
-func (a *API) testRL(org string) bool { return a.testLimiter.allow(org) }
+func (a *API) testRL(ctx context.Context, org string) bool {
+	return a.rl.Allow(ctx, "settings-test:"+org, 5, time.Minute)
+}

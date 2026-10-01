@@ -36,6 +36,14 @@ type Org struct {
 	Billing     Billing    `json:"billing"`
 	Branding    Branding   `json:"branding"`
 	CreatedAt   time.Time  `json:"created_at"`
+	// Suspended is set by an operator (see internal/admin) to stop an abusive
+	// or non-paying org immediately, independent of its plan or billing status.
+	Suspended       bool   `json:"suspended,omitempty"`
+	SuspendedReason string `json:"suspended_reason,omitempty"`
+	// EmailVerifiedAt is set once the signup email address is confirmed. Not
+	// yet enforced anywhere (see README) — tracked so enforcement can be
+	// turned on later without a data migration.
+	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty"`
 	// InboxCursor remembers how far the customer's mailbox has been read, so
 	// old mail is never answered and their mail is never marked as read.
 	InboxCursor InboxCursor `json:"inbox_cursor"`
@@ -54,6 +62,9 @@ type InboxCursor struct {
 // Entitled reports whether the org may send messages and run automation.
 // Client orgs are additionally gated by their agency (checked by the caller).
 func (o Org) Entitled(now time.Time) bool {
+	if o.Suspended {
+		return false
+	}
 	if o.Plan == PlanTrial {
 		return o.TrialEndsAt != nil && now.Before(*o.TrialEndsAt)
 	}

@@ -14,11 +14,13 @@ import (
 	"github.com/hussein/ai-salesperson/internal/billing"
 	"github.com/hussein/ai-salesperson/internal/channels"
 	"github.com/hussein/ai-salesperson/internal/config"
+	"github.com/hussein/ai-salesperson/internal/errtrack"
 	"github.com/hussein/ai-salesperson/internal/httpapi"
 	"github.com/hussein/ai-salesperson/internal/inbound"
 	"github.com/hussein/ai-salesperson/internal/integrations"
 	"github.com/hussein/ai-salesperson/internal/jobs"
 	"github.com/hussein/ai-salesperson/internal/queue"
+	"github.com/hussein/ai-salesperson/internal/ratelimit"
 	"github.com/hussein/ai-salesperson/internal/sales"
 	"github.com/hussein/ai-salesperson/internal/scheduler"
 	"github.com/hussein/ai-salesperson/internal/secrets"
@@ -32,6 +34,8 @@ func main() {
 		return
 	}
 	cfg := config.Load()
+	errtrack.Init(cfg.SentryDSN, cfg.Env, cfg.Release)
+	defer errtrack.Flush()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -86,7 +90,7 @@ func main() {
 	web := webfetch.New(cfg.AllowPrivateNet)
 	svc := sales.New(st, provider,
 		channels.Tenant{AllowPrivate: cfg.AllowPrivateNet, DevLog: cfg.DevLogChannels},
-		web, sources.Factory{Contact: cfg.PublicURL}, integrations.New(cfg.AllowPrivateNet))
+		web, sources.Factory{Contact: cfg.PublicURL}, integrations.New(cfg.AllowPrivateNet), cfg.PublicURL)
 	poller := &inbound.Poller{Store: st, Handler: svc, AllowPrivate: cfg.AllowPrivateNet}
 	runner := &jobs.Runner{Q: q, Sales: svc, Store: st, Poller: poller}
 	runner.Register()
@@ -102,9 +106,18 @@ func main() {
 		log.Println("billing: STRIPE_SECRET_KEY not set; plans cannot be purchased")
 	}
 
+	rl, err := ratelimit.New(cfg.RedisURL)
+	if err != nil {
+		log.Fatalf("rate limiter: %v", err)
+	}
+	defer rl.Close()
+	if cfg.AdminToken == "" {
+		log.Println("WARNING: ADMIN_TOKEN not set; the operator admin API is disabled")
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpapi.New(cfg, st, svc, runner, q, poller, stripe),
+		Handler:           httpapi.New(cfg, st, svc, runner, q, poller, stripe, rl),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      3 * time.Minute, // AI calls are slow

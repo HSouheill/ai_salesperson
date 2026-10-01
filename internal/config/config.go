@@ -38,6 +38,15 @@ type Config struct {
 	AllowPrivateNet   bool // let tenants target private-network hosts (self-hosted only)
 	DevLogChannels    bool // "deliver" unconfigured channels by logging (development only)
 	TrustProxy        bool // take the client IP from X-Forwarded-For (only behind a proxy that sets it)
+
+	AdminToken string // bearer token for the operator admin API; empty disables it
+	SentryDSN  string // error tracking; empty disables it
+	Release    string // build identifier attached to error reports (e.g. a git SHA)
+	Env        string // deployment name attached to error reports (e.g. production, staging)
+
+	CookieSecure bool // require HTTPS for the session cookie; inferred from PublicURL unless set
+
+	TurnstileSecretKey string // Cloudflare Turnstile; empty = signup CAPTCHA check is skipped
 }
 
 func Load() Config {
@@ -61,13 +70,26 @@ func Load() Config {
 		StripePrices: map[string]string{
 			"starter": os.Getenv("STRIPE_PRICE_STARTER"), "growth": os.Getenv("STRIPE_PRICE_GROWTH"), "pro": os.Getenv("STRIPE_PRICE_PRO"),
 		},
-		Workers:         atoi(os.Getenv("WORKERS"), 4),
-		AllowPrivateNet: os.Getenv("ALLOW_PRIVATE_NETWORK") == "true",
-		DevLogChannels:  os.Getenv("DEV_LOG_CHANNELS") == "true",
-		TrustProxy:      os.Getenv("TRUST_PROXY") == "true",
+		Workers:            atoi(os.Getenv("WORKERS"), 4),
+		AllowPrivateNet:    os.Getenv("ALLOW_PRIVATE_NETWORK") == "true",
+		DevLogChannels:     os.Getenv("DEV_LOG_CHANNELS") == "true",
+		TrustProxy:         os.Getenv("TRUST_PROXY") == "true",
+		AdminToken:         os.Getenv("ADMIN_TOKEN"),
+		SentryDSN:          os.Getenv("SENTRY_DSN"),
+		Release:            env("RELEASE", "dev"),
+		Env:                env("APP_ENV", "development"),
+		TurnstileSecretKey: os.Getenv("TURNSTILE_SECRET_KEY"),
 	}
 	if d, err := time.ParseDuration(env("SCHEDULER_INTERVAL", "1m")); err == nil {
 		c.SchedulerInterval = d
+	}
+	switch os.Getenv("COOKIE_SECURE") {
+	case "true":
+		c.CookieSecure = true
+	case "false":
+		c.CookieSecure = false
+	default:
+		c.CookieSecure = strings.HasPrefix(c.PublicURL, "https://")
 	}
 	c.AIProvider = strings.ToLower(os.Getenv("AI_PROVIDER"))
 	c.AIFallback = strings.ToLower(os.Getenv("AI_FALLBACK_PROVIDER"))

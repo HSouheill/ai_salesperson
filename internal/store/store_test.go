@@ -102,6 +102,50 @@ func TestOrgsUsersAndLookups(t *testing.T) {
 	})
 }
 
+func TestListOrgsForAdmin(t *testing.T) {
+	each(t, func(t *testing.T, st Store) {
+		mkOrg(t, st, "acme", "owner@acme.test", func(o *domain.Org) { o.Name = "Acme Software" })
+		mkOrg(t, st, "cedar", "owner@cedar.test", func(o *domain.Org) { o.Name = "Cedar Restaurants" })
+		mkOrg(t, st, "agency", "boss@bright.test", func(o *domain.Org) { o.Name = "Bright Agency" })
+		mkOrg(t, st, "client1", "staff@client1.test", func(o *domain.Org) { o.Name = "Agency Client"; o.ParentID = "agency" })
+
+		if n, err := st.CountOrgs(ctx); err != nil || n != 3 {
+			t.Fatalf("CountOrgs = %d, %v (client orgs must not be counted)", n, err)
+		}
+		all, err := st.ListOrgs(ctx, "", 10, 0)
+		if err != nil || len(all) != 3 {
+			t.Fatalf("ListOrgs(all) = %d, %v", len(all), err)
+		}
+		for _, o := range all {
+			if o.ID == "client1" {
+				t.Error("a client org (has a parent) must not appear in the admin list")
+			}
+		}
+		// Search matches org name, org ID, or a user's email.
+		if got, _ := st.ListOrgs(ctx, "cedar", 10, 0); len(got) != 1 || got[0].ID != "cedar" {
+			t.Errorf("search by name = %v", got)
+		}
+		if got, _ := st.ListOrgs(ctx, "owner@acme.test", 10, 0); len(got) != 1 || got[0].ID != "acme" {
+			t.Errorf("search by email = %v", got)
+		}
+		if got, _ := st.ListOrgs(ctx, "nobody-matches-this", 10, 0); len(got) != 0 {
+			t.Errorf("search with no match = %v", got)
+		}
+		// Pagination.
+		page1, _ := st.ListOrgs(ctx, "", 2, 0)
+		page2, _ := st.ListOrgs(ctx, "", 2, 2)
+		if len(page1) != 2 || len(page2) != 1 {
+			t.Fatalf("pages = %d, %d", len(page1), len(page2))
+		}
+		if page1[0].ID == page2[0].ID {
+			t.Error("pages overlap")
+		}
+		if empty, err := st.ListOrgs(ctx, "", 10, 100); err != nil || len(empty) != 0 {
+			t.Errorf("offset past the end = %v, %v", empty, err)
+		}
+	})
+}
+
 func TestSettingsRoundTripAndCursorSurvivesUpdates(t *testing.T) {
 	each(t, func(t *testing.T, st Store) {
 		o := mkOrg(t, st, "o1", "o1@x.test", nil)

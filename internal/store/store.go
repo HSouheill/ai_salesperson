@@ -27,6 +27,8 @@ type MessageFilter struct {
 
 type Store interface {
 	// CreateOrg creates an organization together with its first user.
+	// Ping verifies the store is reachable, for health checks.
+	Ping(ctx context.Context) error
 	CreateOrg(ctx context.Context, o domain.Org, u domain.User) error
 	UserByEmail(ctx context.Context, email string) (domain.User, error)
 	GetOrg(ctx context.Context, id string) (domain.Org, error)
@@ -39,6 +41,12 @@ type Store interface {
 	OrgBySlug(ctx context.Context, slug string) (domain.Org, error)
 	// ListInboxOrgs returns orgs that have an IMAP mailbox configured.
 	ListInboxOrgs(ctx context.Context) ([]domain.Org, error)
+	// ListOrgs is for the operator admin API: every top-level (non-client) org,
+	// optionally matching q against the org name, org ID or a user's email.
+	// Returns one extra row over limit when there are more results.
+	ListOrgs(ctx context.Context, q string, limit, offset int) ([]domain.Org, error)
+	// CountOrgs is the total number of top-level orgs, for the admin health view.
+	CountOrgs(ctx context.Context) (int, error)
 
 	PutAPIKey(ctx context.Context, k domain.APIKey) error
 	APIKeyByHash(ctx context.Context, hash string) (domain.APIKey, error)

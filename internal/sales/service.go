@@ -40,10 +40,13 @@ type Service struct {
 	CRM      integrations.Pusher // nil = no CRM integrations
 	Web      *webfetch.Client
 	Now      func() time.Time
+	// PublicURL is the API's own public base URL, used to build links that go
+	// out in email (the one-click unsubscribe link).
+	PublicURL string
 }
 
-func New(st store.Store, p ai.Provider, ch channels.Provider, web *webfetch.Client, src sources.Factory, crm integrations.Pusher) *Service {
-	s := &Service{Store: st, AI: p, Channels: ch, Web: web, Sources: src, CRM: crm, Now: time.Now}
+func New(st store.Store, p ai.Provider, ch channels.Provider, web *webfetch.Client, src sources.Factory, crm integrations.Pusher, publicURL string) *Service {
+	s := &Service{Store: st, AI: p, Channels: ch, Web: web, Sources: src, CRM: crm, Now: time.Now, PublicURL: publicURL}
 	if s.Sources.Enrich == nil {
 		s.Sources.Enrich = s.enrichContact
 	}

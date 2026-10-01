@@ -43,6 +43,8 @@ func NewPostgres(ctx context.Context, url string, box *secrets.Box) (*Postgres, 
 
 func (p *Postgres) Close() { p.pool.Close() }
 
+func (p *Postgres) Ping(ctx context.Context) error { return p.pool.Ping(ctx) }
+
 func isUnique(err error) bool {
 	var pe *pgconn.PgError
 	return errors.As(err, &pe) && pe.Code == "23505"
@@ -200,6 +202,39 @@ func (p *Postgres) ListChildOrgs(ctx context.Context, parent string) ([]domain.O
 }
 func (p *Postgres) ListInboxOrgs(ctx context.Context) ([]domain.Org, error) {
 	return p.orgsQuery(ctx, "has_imap")
+}
+
+func (p *Postgres) ListOrgs(ctx context.Context, q string, limit, offset int) ([]domain.Org, error) {
+	q = strings.TrimSpace(q)
+	rows, err := p.pool.Query(ctx, `
+		SELECT data, inbound_token, settings_enc FROM orgs
+		WHERE parent_id = '' AND ($1 = '' OR name ILIKE '%'||$1||'%' OR id = $1 OR
+			EXISTS (SELECT 1 FROM users u WHERE u.org_id = orgs.id AND u.email ILIKE '%'||$1||'%'))
+		ORDER BY created_at DESC, id LIMIT $2 OFFSET $3`, q, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.Org
+	for rows.Next() {
+		var data []byte
+		var tok, enc string
+		if err := rows.Scan(&data, &tok, &enc); err != nil {
+			return nil, err
+		}
+		o, err := p.scanOrg(data, tok, enc)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) CountOrgs(ctx context.Context) (int, error) {
+	var n int
+	err := p.pool.QueryRow(ctx, `SELECT count(*) FROM orgs WHERE parent_id = ''`).Scan(&n)
+	return n, err
 }
 
 func (p *Postgres) PutAPIKey(ctx context.Context, k domain.APIKey) error {

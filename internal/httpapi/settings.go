@@ -157,7 +157,7 @@ type checkResult struct {
 
 // testSettings checks the saved connections without sending or reading mail.
 func (a *API) testSettings(w http.ResponseWriter, r *http.Request) {
-	if !a.testRL(orgID(r)) {
+	if !a.testRL(r.Context(), orgID(r)) {
 		writeErr(w, http.StatusTooManyRequests, "too many tests; try again in a minute")
 		return
 	}

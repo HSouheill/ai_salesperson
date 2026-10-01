@@ -42,6 +42,9 @@ func NewMemory() *Memory {
 
 func (m *Memory) Close() {}
 
+// Ping always succeeds: there is nothing external to be unreachable.
+func (m *Memory) Ping(context.Context) error { return nil }
+
 func cloneOrg(o domain.Org) domain.Org {
 	b, _ := json.Marshal(o)
 	var c domain.Org
@@ -153,6 +156,60 @@ func (m *Memory) OrgBySlug(_ context.Context, slug string) (domain.Org, error) {
 
 func (m *Memory) ListInboxOrgs(_ context.Context) ([]domain.Org, error) {
 	return m.orgsWhere(func(o domain.Org) bool { return o.Settings.Email != nil && o.Settings.Email.IMAP != nil }), nil
+}
+
+// orgEmails returns the lowercase emails of every user belonging to orgID.
+func (m *Memory) orgEmails(orgID string) []string {
+	var out []string
+	for email, u := range m.users {
+		if u.OrgID == orgID {
+			out = append(out, email)
+		}
+	}
+	return out
+}
+
+func (m *Memory) ListOrgs(_ context.Context, q string, limit, offset int) ([]domain.Org, error) {
+	q = strings.ToLower(strings.TrimSpace(q))
+	// orgsWhere holds the read lock for the whole scan, so reading m.users
+	// directly inside the predicate (via orgEmails) without a second lock is safe.
+	matches := m.orgsWhere(func(o domain.Org) bool {
+		if o.ParentID != "" {
+			return false // client orgs are managed by their agency, not the global admin list
+		}
+		if q == "" {
+			return true
+		}
+		if strings.Contains(strings.ToLower(o.Name), q) || strings.Contains(strings.ToLower(o.ID), q) {
+			return true
+		}
+		for _, e := range m.orgEmails(o.ID) {
+			if strings.Contains(e, q) {
+				return true
+			}
+		}
+		return false
+	})
+	if offset >= len(matches) {
+		return []domain.Org{}, nil
+	}
+	end := offset + limit
+	if end > len(matches) {
+		end = len(matches)
+	}
+	return matches[offset:end], nil
+}
+
+func (m *Memory) CountOrgs(_ context.Context) (int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	n := 0
+	for _, o := range m.orgs {
+		if o.ParentID == "" {
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (m *Memory) PutAPIKey(_ context.Context, k domain.APIKey) error {

@@ -109,6 +109,36 @@ func TestEmailSendsThroughTenantSMTP(t *testing.T) {
 	}
 }
 
+func TestEmailOneClickUnsubscribeHeaders(t *testing.T) {
+	host, port, got := fakeSMTP(t)
+	e := NewEmail(emailCfg(host, port), true)
+	url := "https://api.acme.test/v1/unsubscribe/org1/p1/deadbeef"
+	if err := e.Send(context.Background(), Outgoing{To: "ahmed@abc.test", Subject: "Hi", Body: "hello", UnsubscribeURL: url}); err != nil {
+		t.Fatal(err)
+	}
+	m := got()[0]
+	headers, _, _ := strings.Cut(m, "\r\n\r\n")
+	for _, want := range []string{
+		"List-Unsubscribe: <mailto:sales@acme.test?subject=unsubscribe>, <" + url + ">",
+		"List-Unsubscribe-Post: List-Unsubscribe=One-Click",
+	} {
+		if !strings.Contains(headers, want) {
+			t.Errorf("headers missing %q:\n%s", want, headers)
+		}
+	}
+	// A URL cannot be used to inject extra headers.
+	evil := "https://x.test/u\r\nBcc: victim@evil.test"
+	if err := e.Send(context.Background(), Outgoing{To: "ahmed@abc.test", Subject: "Hi", Body: "hello", UnsubscribeURL: evil}); err != nil {
+		t.Fatal(err)
+	}
+	headers2, _, _ := strings.Cut(got()[1], "\r\n\r\n")
+	for _, l := range strings.Split(headers2, "\r\n") {
+		if strings.HasPrefix(l, "Bcc:") {
+			t.Fatalf("header injected via UnsubscribeURL: %q", headers2)
+		}
+	}
+}
+
 func TestEmailCannotInjectHeaders(t *testing.T) {
 	host, port, got := fakeSMTP(t)
 	e := NewEmail(emailCfg(host, port), true)

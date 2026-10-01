@@ -203,6 +203,7 @@ func (s *Service) dispatch(ctx context.Context, org domain.Org, a domain.Agent, 
 	out := channels.Outgoing{To: to, Subject: m.Subject, Body: m.Body}
 	if m.Channel == "email" && (m.Kind == "initial" || m.Kind == "followup") {
 		out.Body += emailFooter(org)
+		out.UnsubscribeURL = s.UnsubscribeURL(org, p.ID)
 	}
 	if hist, err := s.Store.ListMessages(ctx, org.ID, store.MessageFilter{ProspectID: p.ID}); err == nil {
 		for _, h := range hist {

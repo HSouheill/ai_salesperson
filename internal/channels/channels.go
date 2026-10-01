@@ -24,6 +24,10 @@ type Outgoing struct {
 	// InWindow: the prospect wrote to us within the last 24h. WhatsApp only
 	// allows free-text replies inside that window.
 	InWindow bool
+	// UnsubscribeURL, when set, is added as a one-click (RFC 8058) unsubscribe
+	// link on email: List-Unsubscribe + List-Unsubscribe-Post headers. Gmail
+	// and Yahoo throttle or junk bulk senders that lack this.
+	UnsubscribeURL string
 }
 
 type Channel interface {

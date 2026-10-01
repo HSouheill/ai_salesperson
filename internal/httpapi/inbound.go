@@ -14,6 +14,7 @@ import (
 
 	"github.com/hussein/ai-salesperson/internal/ai"
 	"github.com/hussein/ai-salesperson/internal/inbound"
+	"github.com/hussein/ai-salesperson/internal/sales"
 )
 
 // Provider callbacks. Each organization has an unguessable token in the URL;
@@ -160,4 +161,18 @@ func (a *API) whatsappInbound(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]int{"matched": matched})
+}
+
+// unsubscribe handles the RFC 8058 one-click link. It answers 200 for an
+// already-invalid or already-used token too: a mail provider retrying a
+// click (or a human clicking twice) must never see an error.
+func (a *API) unsubscribe(w http.ResponseWriter, r *http.Request) {
+	err := a.sales.Unsubscribe(r.Context(), r.PathValue("org"), r.PathValue("prospect"), r.PathValue("token"))
+	if err != nil && !errors.Is(err, sales.ErrInvalid) {
+		fail(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("You have been unsubscribed and will not be contacted again."))
 }

@@ -44,7 +44,7 @@ func (e *Email) Send(ctx context.Context, o Outgoing) error {
 	if err != nil {
 		return fmt.Errorf("invalid sender address in settings")
 	}
-	msg := buildMessage(e.cfg.FromName, from.Address, to.Address, o.Subject, o.Body)
+	msg := buildMessage(e.cfg.FromName, from.Address, to.Address, o.Subject, o.Body, o.UnsubscribeURL)
 	return e.deliver(ctx, from.Address, to.Address, msg)
 }
 
@@ -53,7 +53,7 @@ func clean(s string) string {
 	return strings.NewReplacer("\r", " ", "\n", " ").Replace(s)
 }
 
-func buildMessage(fromName, from, to, subject, body string) []byte {
+func buildMessage(fromName, from, to, subject, body, unsubscribeURL string) []byte {
 	var b bytes.Buffer
 	dom := "localhost"
 	if i := strings.LastIndex(from, "@"); i >= 0 {
@@ -68,7 +68,16 @@ func buildMessage(fromName, from, to, subject, body string) []byte {
 	h("Subject", mime.QEncoding.Encode("utf-8", clean(subject)))
 	h("Date", time.Now().Format(time.RFC1123Z))
 	h("Message-ID", "<"+hex.EncodeToString(id)+"@"+dom+">")
-	h("List-Unsubscribe", "<mailto:"+from+"?subject=unsubscribe>")
+	if unsubscribeURL != "" {
+		// RFC 8058 one-click unsubscribe: Gmail/Yahoo require this on bulk mail
+		// or they throttle/junk it. Both the mailto and the link are offered;
+		// List-Unsubscribe-Post makes mail clients POST instead of asking the
+		// user to visit a page, per the RFC.
+		h("List-Unsubscribe", "<mailto:"+from+"?subject=unsubscribe>, <"+clean(unsubscribeURL)+">")
+		h("List-Unsubscribe-Post", "List-Unsubscribe=One-Click")
+	} else {
+		h("List-Unsubscribe", "<mailto:"+from+"?subject=unsubscribe>")
+	}
 	h("MIME-Version", "1.0")
 	h("Content-Type", `text/plain; charset="UTF-8"`)
 	h("Content-Transfer-Encoding", "quoted-printable")

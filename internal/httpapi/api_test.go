@@ -25,6 +25,7 @@ import (
 	"github.com/hussein/ai-salesperson/internal/integrations"
 	"github.com/hussein/ai-salesperson/internal/jobs"
 	"github.com/hussein/ai-salesperson/internal/queue"
+	"github.com/hussein/ai-salesperson/internal/ratelimit"
 	"github.com/hussein/ai-salesperson/internal/sales"
 	"github.com/hussein/ai-salesperson/internal/secrets"
 	"github.com/hussein/ai-salesperson/internal/sources"
@@ -132,6 +133,10 @@ func newEnvWith(t *testing.T, o opts) *env {
 			t.Fatal(err)
 		}
 	}
+	cfg := config.Config{JWTSecret: "test-secret", PublicURL: "http://api.test", WebURL: "http://web.test", AllowPrivateNet: o.allowPrivate}
+	if o.cfg != nil {
+		o.cfg(&cfg)
+	}
 	fc := &fakeChannels{unconfigured: map[string]bool{}}
 	clock := &fakeClock{t: time.Now()}
 	var provider ai.Provider = ai.Mock{}
@@ -139,7 +144,7 @@ func newEnvWith(t *testing.T, o opts) *env {
 		provider = o.ai
 	}
 	svc := sales.New(st, provider, fc, webfetch.New(o.allowPrivate),
-		sources.Factory{OverpassURL: o.overpass, PlacesURL: o.places}, o.crm)
+		sources.Factory{OverpassURL: o.overpass, PlacesURL: o.places}, o.crm, cfg.PublicURL)
 	svc.Now = clock.Now
 	ctx, cancel := context.WithCancel(context.Background())
 	q := queue.NewMemory(64)
@@ -147,15 +152,11 @@ func newEnvWith(t *testing.T, o opts) *env {
 	runner := &jobs.Runner{Q: q, Sales: svc, Store: st, Poller: poller}
 	runner.Register()
 	q.Start(ctx, 2)
-	cfg := config.Config{JWTSecret: "test-secret", PublicURL: "http://api.test", WebURL: "http://web.test", AllowPrivateNet: o.allowPrivate}
-	if o.cfg != nil {
-		o.cfg(&cfg)
-	}
 	stripe := o.stripe
 	if stripe == nil {
 		stripe = &billing.Stripe{}
 	}
-	srv := httptest.NewServer(httpapi.New(cfg, st, svc, runner, q, poller, stripe))
+	srv := httptest.NewServer(httpapi.New(cfg, st, svc, runner, q, poller, stripe, ratelimit.NewMemory()))
 	t.Cleanup(func() { srv.Close(); cancel(); q.Close() })
 	return &env{t: t, srv: srv, ch: fc, st: st, svc: svc, clock: clock, q: q, run: runner}
 }
