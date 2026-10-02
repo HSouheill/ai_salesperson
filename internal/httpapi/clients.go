@@ -208,6 +208,11 @@ func (a *API) updateClient(w http.ResponseWriter, r *http.Request) {
 }
 
 // clientLogin gives the agency a short session inside a client's dashboard.
+// The browser's cookie is swapped to the impersonation session; the agency's
+// own session is stashed in a second cookie so "back to my agency" (exitClient)
+// needs no fresh login. viaAPIKey is already rejected by requireAgency, and an
+// impersonation session cannot itself start a nested impersonation (requireAgency
+// rejects Agency != ""), so this never stacks.
 func (a *API) clientLogin(w http.ResponseWriter, r *http.Request) {
 	agency, ok := a.requireAgency(w, r)
 	if !ok {
@@ -222,6 +227,40 @@ func (a *API) clientLogin(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	ownTok, err := auth.Sign(a.cfg.JWTSecret, auth.Claims{UserID: who(r).UserID, OrgID: agency.ID}, tokenTTL)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	a.setCookie(w, cookieAgencySession, ownTok, true, tokenTTL)
+	a.setCookie(w, cookieSession, tok, true, impersonateTTL)
+	a.setCookie(w, cookieCSRF, randomHex(16), false, impersonateTTL)
 	logf("agency %s opened client %s", agency.ID, c.ID) // audit trail
 	writeJSON(w, http.StatusOK, map[string]any{"token": tok, "org": c})
+}
+
+// exitClient restores the agency's own session from the stashed cookie — the
+// browser-side half of "back to my agency". A bearer-token client has no
+// stashed cookie to restore from; it should simply use its own token again.
+func (a *API) exitClient(w http.ResponseWriter, r *http.Request) {
+	c, err := r.Cookie(cookieAgencySession)
+	if err != nil || c.Value == "" {
+		writeErr(w, http.StatusConflict, "no agency session to return to")
+		return
+	}
+	claims, err := auth.Verify(a.cfg.JWTSecret, c.Value)
+	if err != nil {
+		a.clearSessionCookies(w)
+		writeErr(w, http.StatusUnauthorized, "agency session expired; please log in again")
+		return
+	}
+	org, err := a.store.GetOrg(r.Context(), claims.OrgID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	a.setCookie(w, cookieSession, c.Value, true, tokenTTL)
+	a.setCookie(w, cookieCSRF, randomHex(16), false, tokenTTL)
+	a.clearCookie(w, cookieAgencySession)
+	writeJSON(w, http.StatusOK, map[string]any{"org": org})
 }

@@ -1,10 +1,11 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, token } from "@/lib/api";
+import { api } from "@/lib/api";
 import { errMsg } from "@/lib/hooks";
 import { applyBranding } from "@/components/Shell";
 import { ErrorBanner } from "@/components/ui";
+import { Turnstile, captchaRequired } from "@/components/Turnstile";
 import type { Branding } from "@/lib/types";
 
 export default function LoginPage() {
@@ -17,6 +18,7 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [brand, setBrand] = useState<Branding>({});
   const [branded, setBranded] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
 
   // An agency's client opens /login?org=handle and sees the agency's brand, not ours.
   useEffect(() => {
@@ -32,12 +34,17 @@ export default function LoginPage() {
     e.preventDefault();
     setBusy(true); setError("");
     try {
-      const r = mode === "signup" ? await api.signup(org, email, password) : await api.login(email, password);
-      token.set(r.token);
+      // The response also carries a bearer token (for API/CLI use), but the
+      // dashboard ignores it: the server already set the session as an
+      // httpOnly cookie, which the browser will send on its own from here.
+      if (mode === "signup") await api.signup(org, email, password, captchaToken ?? undefined);
+      else await api.login(email, password);
       router.replace("/");
     } catch (err) { setError(errMsg(err)); }
     finally { setBusy(false); }
   }
+
+  const blockedByCaptcha = mode === "signup" && captchaRequired && !captchaToken;
 
   return (
     <div className="auth">
@@ -62,7 +69,8 @@ export default function LoginPage() {
           <input id="pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} maxLength={72}
             autoComplete={mode === "signup" ? "new-password" : "current-password"} />
           {mode === "signup" && <div className="hint">At least 8 characters.</div>}</div>
-        <button className="btn btn-primary" style={{ width: "100%" }} disabled={busy}>
+        {mode === "signup" && <Turnstile onToken={setCaptchaToken} />}
+        <button className="btn btn-primary" style={{ width: "100%" }} disabled={busy || blockedByCaptcha}>
           {busy ? "Please wait…" : mode === "signup" ? "Start free trial" : "Log in"}
         </button>
       </form>

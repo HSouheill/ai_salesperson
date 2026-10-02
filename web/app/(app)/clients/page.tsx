@@ -1,7 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { api, token } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useAction, useLoad } from "@/lib/hooks";
 import { useMe } from "@/components/Shell";
 import { Badge, Card, Empty, ErrorBanner, PageHead, money } from "@/components/ui";
@@ -28,8 +28,9 @@ export default function Clients() {
     if (r) { setF(blank); setOpen(false); void reload(); }
   }
   async function enter(id: string) {
+    // clientLogin's response already set the session cookie; nothing to store here.
     const r = await run("enter" + id, () => api.clientLogin(id));
-    if (r) { token.enterClient(r.token); window.location.href = "/"; }
+    if (r) window.location.href = "/";
   }
   const loginLink = (slug?: string) => (slug ? `${window.location.origin}/login?org=${slug}` : "");
 

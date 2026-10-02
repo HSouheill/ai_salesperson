@@ -49,6 +49,7 @@ func New(cfg config.Config, st store.Store, svc *sales.Service, jr *jobs.Runner,
 	mux.HandleFunc("GET /v1/public/branding", a.publicBranding)
 	mux.Handle("POST /v1/auth/signup", a.rateLimited("auth", 10, time.Minute, http.HandlerFunc(a.signup)))
 	mux.Handle("POST /v1/auth/login", a.rateLimited("auth", 10, time.Minute, http.HandlerFunc(a.login)))
+	mux.HandleFunc("POST /v1/auth/logout", a.logout)
 
 	adminAuthed := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, a.requireAdmin(h)) }
 	adminAuthed("GET /v1/admin/orgs", a.adminListOrgs)
@@ -89,6 +90,7 @@ func New(cfg config.Config, st store.Store, svc *sales.Service, jr *jobs.Runner,
 	authed("POST /v1/clients", a.createClient)
 	authed("PUT /v1/clients/{id}", a.updateClient)
 	authed("POST /v1/clients/{id}/login", a.clientLogin)
+	authed("POST /v1/clients/exit", a.exitClient)
 
 	authed("GET /v1/agents", a.listAgents)
 	authed("POST /v1/agents", a.createAgent)
@@ -140,8 +142,9 @@ func (a *API) cors(next http.Handler) http.Handler {
 		if o := a.cfg.CORSOrigin; o != "" && r.Header.Get("Origin") == o {
 			h := w.Header()
 			h.Set("Access-Control-Allow-Origin", o)
-			h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, "+csrfHeader)
 			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			h.Set("Access-Control-Allow-Credentials", "true") // the dashboard sends the session cookie
 			h.Set("Vary", "Origin")
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)

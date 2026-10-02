@@ -1,11 +1,15 @@
 package httpapi_test
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/hussein/ai-salesperson/internal/config"
 	"github.com/hussein/ai-salesperson/internal/domain"
+	"github.com/hussein/ai-salesperson/internal/httpapi"
 )
 
 func adminEnv(t *testing.T, token string) *env {
@@ -176,4 +180,36 @@ func TestOneClickUnsubscribe(t *testing.T) {
 	// prospect ID is part of what's HMAC'd), so it answers 200 like any other
 	// wrong token — this is the opacity property, not a bug.
 	e.ok(200, "POST", "/v1/unsubscribe/"+e.orgID(tok)+"/does-not-exist/"+strings.Repeat("0", 64), "", nil)
+}
+
+func TestSignupCaptcha(t *testing.T) {
+	var gotForm url.Values
+	var result string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		gotForm = r.Form
+		w.Write([]byte(result))
+	}))
+	defer srv.Close()
+
+	orig := httpapi.TurnstileVerifyURLForTests(srv.URL)
+	defer httpapi.TurnstileVerifyURLForTests(orig)
+
+	e := newEnvWith(t, opts{cfg: func(c *config.Config) { c.TurnstileSecretKey = "server-secret" }})
+
+	// No token at all: rejected before ever calling Cloudflare.
+	e.ok(400, "POST", "/v1/auth/signup", "", map[string]any{"org_name": "Acme", "email": "a@acme.test", "password": "password123"})
+
+	result = `{"success":false}`
+	e.ok(400, "POST", "/v1/auth/signup", "", map[string]any{"org_name": "Acme", "email": "a@acme.test", "password": "password123", "captcha_token": "bad"})
+
+	result = `{"success":true}`
+	e.ok(201, "POST", "/v1/auth/signup", "", map[string]any{"org_name": "Acme", "email": "a@acme.test", "password": "password123", "captcha_token": "good"})
+	if gotForm.Get("secret") != "server-secret" || gotForm.Get("response") != "good" || gotForm.Get("remoteip") == "" {
+		t.Fatalf("verification request = %v", gotForm)
+	}
+
+	// Disabled (no secret key configured, the default): no token required, as before.
+	plain := newEnv(t)
+	plain.ok(201, "POST", "/v1/auth/signup", "", map[string]any{"org_name": "Beta", "email": "b@beta.test", "password": "password123"})
 }

@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useState } from "react";
-import { api, token } from "@/lib/api";
+import { api } from "@/lib/api";
 import type { Me } from "@/lib/types";
 import { Badge } from "./ui";
 
@@ -30,7 +30,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const [pending, setPending] = useState(0);
 
   useEffect(() => {
-    if (!token.get()) { router.replace("/login"); return; }
+    // Whether we're logged in lives in an httpOnly cookie this page can't
+    // read, so the only way to know is to ask the API. A 401 here is handled
+    // by the shared fetch wrapper, which redirects to /login.
     api.me().then((m) => { setMe(m); applyBranding(m.org.branding?.primary_color); }).catch(() => {});
     return () => applyBranding(undefined);
   }, [router]);
@@ -71,14 +73,14 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           </nav>
           <div className="side-foot small">
             <div style={{ marginBottom: 8 }}><strong>{me.org.name}</strong><br /><span className="muted">{me.org.plan} plan</span></div>
-            <button className="btn btn-sm" onClick={() => { token.clear(); router.replace("/login"); }}>Log out</button>
+            <button className="btn btn-sm" onClick={() => { api.logout().finally(() => router.replace("/login")); }}>Log out</button>
           </div>
         </aside>
         <main className="main">
           {me.agency_session && (
             <div className="banner banner-warn" role="status">
               You are viewing <strong>{me.org.name}</strong> as their agency.{" "}
-              <button className="btn btn-sm" onClick={() => { token.leaveClient(); window.location.href = "/clients"; }}>Back to your agency</button>
+              <button className="btn btn-sm" onClick={() => { api.exitClient().then(() => { window.location.href = "/clients"; }); }}>Back to your agency</button>
             </div>
           )}
           {!me.entitled && (

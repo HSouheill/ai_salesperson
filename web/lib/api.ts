@@ -4,49 +4,34 @@ import type {
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
-const TOKEN_KEY = "aisp_token";
-const AGENCY_KEY = "aisp_agency_token";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 
-// Tokens live in localStorage: simple, but readable by any script on the page.
-// Move to an httpOnly cookie issued by the API before production use.
-const store = {
-  get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
-  set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } },
-  del: (k: string) => { try { localStorage.removeItem(k); } catch { /* ignore */ } },
-};
+// The session lives in an httpOnly cookie the browser sends automatically
+// (credentials: "include" below) — this page's JS never sees the token value,
+// so an XSS bug can't exfiltrate it. Mutating requests also need the
+// double-submit CSRF header, read from the one cookie that isn't httpOnly.
+function readCookie(name: string): string {
+  if (typeof document === "undefined") return "";
+  const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
+  return m ? decodeURIComponent(m[1]) : "";
+}
 
-export const token = {
-  get: () => store.get(TOKEN_KEY),
-  set: (t: string) => store.set(TOKEN_KEY, t),
-  clear: () => { store.del(TOKEN_KEY); store.del(AGENCY_KEY); },
-  /** An agency stepping into a client: remember its own session to come back to. */
-  enterClient: (clientToken: string) => {
-    const own = store.get(TOKEN_KEY);
-    if (own && !store.get(AGENCY_KEY)) store.set(AGENCY_KEY, own);
-    store.set(TOKEN_KEY, clientToken);
-  },
-  leaveClient: (): boolean => {
-    const own = store.get(AGENCY_KEY);
-    if (!own) return false;
-    store.set(TOKEN_KEY, own);
-    store.del(AGENCY_KEY);
-    return true;
-  },
-};
+let unauthorizedHandled = false;
 
 async function request<T>(method: string, path: string, body?: unknown, contentType = "application/json"): Promise<T> {
   const headers: Record<string, string> = {};
-  const t = token.get();
-  if (t) headers.Authorization = `Bearer ${t}`;
   if (body !== undefined) headers["Content-Type"] = contentType;
+  if (method !== "GET" && method !== "HEAD") {
+    const csrf = readCookie("aisp_csrf");
+    if (csrf) headers["X-CSRF-Token"] = csrf;
+  }
   let res: Response;
   try {
     res = await fetch(BASE + path, {
-      method, headers,
+      method, headers, credentials: "include",
       body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body),
     });
   } catch {
@@ -55,8 +40,8 @@ async function request<T>(method: string, path: string, body?: unknown, contentT
   if (res.status === 204) return undefined as T;
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    if (res.status === 401 && t) {
-      token.clear();
+    if (res.status === 401 && !unauthorizedHandled) {
+      unauthorizedHandled = true; // avoid a redirect loop if /login itself ever 401s
       if (typeof window !== "undefined") window.location.href = "/login";
     }
     throw new ApiError(res.status, data.error ?? `Request failed (${res.status})`);
@@ -81,9 +66,10 @@ export interface ClientInput {
 }
 
 export const api = {
-  signup: (org_name: string, email: string, password: string) =>
-    post<{ token: string }>("/v1/auth/signup", { org_name, email, password }),
+  signup: (org_name: string, email: string, password: string, captcha_token?: string) =>
+    post<{ token: string }>("/v1/auth/signup", { org_name, email, password, captcha_token }),
   login: (email: string, password: string) => post<{ token: string }>("/v1/auth/login", { email, password }),
+  logout: () => request<void>("POST", "/v1/auth/logout"),
   plans: () => get<PlanInfo[]>("/v1/plans"),
   publicBranding: (slug: string) => get<Branding>(`/v1/public/branding?slug=${encodeURIComponent(slug)}`),
   me: () => get<Me>("/v1/me"),
@@ -106,6 +92,7 @@ export const api = {
   createClient: (c: ClientInput) => post<Org>("/v1/clients", c),
   updateClient: (id: string, c: { name?: string; plan?: PlanName; branding?: Branding }) => put<Org>(`/v1/clients/${id}`, c),
   clientLogin: (id: string) => post<{ token: string; org: Org }>(`/v1/clients/${id}/login`),
+  exitClient: () => post<{ org: Org }>("/v1/clients/exit"),
 
   agents: () => get<Agent[]>("/v1/agents"),
   agent: (id: string) => get<Agent>(`/v1/agents/${id}`),

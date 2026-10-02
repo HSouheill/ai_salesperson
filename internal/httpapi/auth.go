@@ -45,33 +45,54 @@ func randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
+// requireAuth accepts either an Authorization: Bearer token (a JWT or an
+// "aisp_"-prefixed API key — used by non-browser clients, and exempt from the
+// CSRF check below since a cross-site page cannot set that header on a simple
+// request) or, for the browser dashboard, the httpOnly session cookie. A
+// cookie-authenticated mutating request must also carry a matching
+// X-CSRF-Token header (double-submit: see cookies.go) or it is refused.
 func (a *API) requireAuth(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok {
-			writeErr(w, http.StatusUnauthorized, "missing bearer token")
+		var p principal
+		var viaCookie bool
+		if tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
+			if strings.HasPrefix(tok, apiKeyPrefix) {
+				k, err := a.store.APIKeyByHash(r.Context(), hashKey(tok))
+				if err != nil {
+					writeErr(w, http.StatusUnauthorized, "invalid API key")
+					return
+				}
+				org, err := a.store.GetOrg(r.Context(), k.OrgID)
+				if err != nil || !org.Plan.Limits().APIAccess {
+					writeErr(w, http.StatusForbidden, "API access needs the Pro plan")
+					return
+				}
+				p = principal{Claims: auth.Claims{UserID: "apikey:" + k.ID, OrgID: k.OrgID}, viaAPIKey: true}
+			} else {
+				c, err := auth.Verify(a.cfg.JWTSecret, tok)
+				if err != nil {
+					writeErr(w, http.StatusUnauthorized, "invalid or expired token")
+					return
+				}
+				p = principal{Claims: c}
+			}
+		} else if c, err := r.Cookie(cookieSession); err == nil {
+			claims, err := auth.Verify(a.cfg.JWTSecret, c.Value)
+			if err != nil {
+				writeErr(w, http.StatusUnauthorized, "invalid or expired session")
+				return
+			}
+			p, viaCookie = principal{Claims: claims}, true
+		} else {
+			writeErr(w, http.StatusUnauthorized, "not logged in")
 			return
 		}
-		var p principal
-		if strings.HasPrefix(tok, apiKeyPrefix) {
-			k, err := a.store.APIKeyByHash(r.Context(), hashKey(tok))
-			if err != nil {
-				writeErr(w, http.StatusUnauthorized, "invalid API key")
+		if viaCookie && r.Method != http.MethodGet && r.Method != http.MethodHead {
+			csrfCookie, err := r.Cookie(cookieCSRF)
+			if err != nil || csrfCookie.Value == "" || csrfCookie.Value != r.Header.Get(csrfHeader) {
+				writeErr(w, http.StatusForbidden, "missing or invalid CSRF token")
 				return
 			}
-			org, err := a.store.GetOrg(r.Context(), k.OrgID)
-			if err != nil || !org.Plan.Limits().APIAccess {
-				writeErr(w, http.StatusForbidden, "API access needs the Pro plan")
-				return
-			}
-			p = principal{Claims: auth.Claims{UserID: "apikey:" + k.ID, OrgID: k.OrgID}, viaAPIKey: true}
-		} else {
-			c, err := auth.Verify(a.cfg.JWTSecret, tok)
-			if err != nil {
-				writeErr(w, http.StatusUnauthorized, "invalid or expired token")
-				return
-			}
-			p = principal{Claims: c}
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, p)))
 	})
@@ -89,9 +110,10 @@ func interactive(w http.ResponseWriter, r *http.Request) bool {
 }
 
 type credentials struct {
-	OrgName  string `json:"org_name"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	OrgName      string `json:"org_name"`
+	Email        string `json:"email"`
+	Password     string `json:"password"`
+	CaptchaToken string `json:"captcha_token,omitempty"` // only checked on signup; see captcha.go
 }
 
 func (a *API) token(u domain.User) (string, error) {
@@ -125,6 +147,10 @@ func (a *API) signup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "org_name is required (max 100 characters)")
 		return
 	}
+	if err := a.verifyCaptcha(r.Context(), in.CaptchaToken, a.clientIP(r)); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	hash, err := auth.HashPassword(in.Password)
 	if err != nil {
 		fail(w, err)
@@ -144,6 +170,7 @@ func (a *API) signup(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	a.setSessionCookies(w, tok, tokenTTL)
 	writeJSON(w, http.StatusCreated, map[string]any{"token": tok, "org": org, "user": u})
 }
 
@@ -170,7 +197,15 @@ func (a *API) login(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	a.setSessionCookies(w, tok, tokenTTL)
 	writeJSON(w, http.StatusOK, map[string]any{"token": tok, "user": u})
+}
+
+// logout clears the session cookies. Non-browser clients using a bearer token
+// have nothing to clear server-side (the token simply expires on its own).
+func (a *API) logout(w http.ResponseWriter, _ *http.Request) {
+	a.clearSessionCookies(w)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *API) plans(w http.ResponseWriter, _ *http.Request) {

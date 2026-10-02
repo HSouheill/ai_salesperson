@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  go:
+    name: Go (vet, build, test, vuln scan)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aisp
+          POSTGRES_PASSWORD: aisp
+          POSTGRES_DB: aisp_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U aisp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      # The in-memory store runs every test; TEST_DATABASE_URL re-runs the
+      # store and httpapi suites against real Postgres (they truncate their
+      # tables between runs, so the throwaway service DB is fine to reuse).
+      - name: go test -race
+        env:
+          TEST_DATABASE_URL: postgres://aisp:aisp@localhost:5432/aisp_test?sslmode=disable
+        run: go test -race -count=1 ./...
+
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  web:
+    name: Web (typecheck, build, audit)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: next build
+        run: npx next build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8080
+
+      # Informational only: a known vulnerability shouldn't block a merge by
+      # itself, but it must be visible. Bump the dependency when this fails.
+      - name: npm audit (informational)
+        run: npm audit --omit=dev || true
