@@ -74,6 +74,14 @@ type Store interface {
 	// CountSent counts outbound messages sent since t (agentID "" = all agents).
 	CountSent(ctx context.Context, orgID, agentID string, since time.Time) (int, error)
 	Counts(ctx context.Context, orgID string) (Counts, error)
+
+	PutReport(ctx context.Context, r domain.IntelligenceReport) error
+	GetReport(ctx context.Context, orgID, id string) (domain.IntelligenceReport, error)
+	ListReports(ctx context.Context, orgID string) ([]domain.IntelligenceReport, error)
+	DeleteReport(ctx context.Context, orgID, id string) error
+	// CountReportsSince counts reports created at or after t, for the monthly plan cap.
+	CountReportsSince(ctx context.Context, orgID string, since time.Time) (int, error)
+
 	Close()
 }
 

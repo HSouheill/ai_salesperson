@@ -343,6 +343,7 @@ const (
 	tAgents    table = "agents"
 	tProspects table = "prospects"
 	tMessages  table = "messages"
+	tReports   table = "reports"
 )
 
 func (p *Postgres) put(ctx context.Context, t table, id, org, ref, state string, v any) error {
@@ -425,6 +426,36 @@ func (p *Postgres) GetMessage(ctx context.Context, org, id string) (domain.Messa
 }
 func (p *Postgres) ListMessages(ctx context.Context, org string, f MessageFilter) ([]domain.Message, error) {
 	return listAll[domain.Message](ctx, p, tMessages, org, f.ProspectID, string(f.Status), "ASC")
+}
+
+func (p *Postgres) PutReport(ctx context.Context, r domain.IntelligenceReport) error {
+	return p.put(ctx, tReports, r.ID, r.OrgID, "", string(r.Status), r)
+}
+func (p *Postgres) GetReport(ctx context.Context, org, id string) (domain.IntelligenceReport, error) {
+	return getOne[domain.IntelligenceReport](ctx, p, tReports, org, id)
+}
+func (p *Postgres) ListReports(ctx context.Context, org string) ([]domain.IntelligenceReport, error) {
+	return listAll[domain.IntelligenceReport](ctx, p, tReports, org, "", "", "DESC")
+}
+
+// CountReportsSince filters on the JSON-embedded created_at (like CountSent
+// does for sent_at above), not the table's own created_at column: the table
+// column is DB-assigned at insert time and would stay fixed even if a report
+// were ever re-created with an explicit timestamp, so the two could diverge.
+func (p *Postgres) CountReportsSince(ctx context.Context, org string, since time.Time) (int, error) {
+	var n int
+	err := p.pool.QueryRow(ctx, `SELECT count(*) FROM reports WHERE org_id=$1 AND (data->>'created_at')::timestamptz >= $2`, org, since).Scan(&n)
+	return n, err
+}
+func (p *Postgres) DeleteReport(ctx context.Context, org, id string) error {
+	tag, err := p.pool.Exec(ctx, `DELETE FROM reports WHERE org_id=$1 AND id=$2`, org, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (p *Postgres) Counts(ctx context.Context, org string) (Counts, error) {

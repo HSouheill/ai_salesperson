@@ -87,3 +87,55 @@ func TestCompleteJSONReportsUpstreamErrors(t *testing.T) {
 		t.Fatalf("unusable output should be ErrUpstream, got %v", err)
 	}
 }
+
+func TestAnthropicWebSearch(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&got)
+		w.Write([]byte(`{"content":[
+			{"type":"server_tool_use","id":"srvtool_1","name":"web_search","input":{"query":"Acme Co"}},
+			{"type":"web_search_tool_result","tool_use_id":"srvtool_1","content":[{"type":"web_search_result","title":"Acme","url":"https://acme.test"}]},
+			{"type":"text","text":"Acme Co is "},
+			{"type":"text","text":"a real company."}
+		]}`))
+	}))
+	defer srv.Close()
+	a := NewAnthropic("k", "m")
+	a.baseURL = srv.URL
+
+	out, err := a.Complete(context.Background(), Request{Prompt: "p", WebSearch: true, MaxSearches: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the "text" blocks are concatenated; tool-use/tool-result blocks are
+	// correctly skipped regardless of their shape.
+	if out != "Acme Co is a real company." {
+		t.Errorf("out = %q", out)
+	}
+	tools, ok := got["tools"].([]any)
+	if !ok || len(tools) != 1 {
+		t.Fatalf("tools = %v", got["tools"])
+	}
+	tool := tools[0].(map[string]any)
+	if tool["type"] != "web_search_20250305" || tool["name"] != "web_search" || tool["max_uses"] != float64(3) {
+		t.Errorf("web search tool = %v", tool)
+	}
+
+	// A default max_uses applies when MaxSearches is left at 0.
+	got = nil
+	if _, err := a.Complete(context.Background(), Request{Prompt: "p", WebSearch: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got["tools"].([]any)[0].(map[string]any)["max_uses"] != float64(5) {
+		t.Errorf("default max_uses = %v", got["tools"])
+	}
+
+	// Without WebSearch, no tools field is sent at all (existing callers unaffected).
+	got = nil
+	if _, err := a.Complete(context.Background(), Request{Prompt: "p"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := got["tools"]; present {
+		t.Errorf("tools sent without WebSearch: %v", got["tools"])
+	}
+}

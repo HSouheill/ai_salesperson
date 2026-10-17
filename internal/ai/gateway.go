@@ -17,11 +17,12 @@ import (
 type Task string
 
 const (
-	TaskProfile  Task = "profile"
-	TaskBrain    Task = "brain"
-	TaskResearch Task = "research"
-	TaskOutreach Task = "outreach"
-	TaskReply    Task = "reply"
+	TaskProfile      Task = "profile"
+	TaskBrain        Task = "brain"
+	TaskResearch     Task = "research"
+	TaskOutreach     Task = "outreach"
+	TaskReply        Task = "reply"
+	TaskIntelligence Task = "intelligence"
 )
 
 type Request struct {
@@ -29,6 +30,15 @@ type Request struct {
 	System    string
 	Prompt    string
 	MaxTokens int
+	// WebSearch lets the model search the live web as part of answering,
+	// instead of relying only on what's in the prompt. Anthropic only: it uses
+	// Claude's native web search tool, so no separate search-API key is
+	// needed. Providers that don't support it fall back to answering from the
+	// prompt alone (document that gap wherever WebSearch is set).
+	WebSearch bool
+	// MaxSearches caps how many search queries the model may issue in one
+	// request (cost control). 0 picks a provider default.
+	MaxSearches int
 }
 
 // ErrUpstream marks failures of the model provider (network, status, bad output).

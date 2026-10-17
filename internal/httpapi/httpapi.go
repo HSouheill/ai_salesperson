@@ -17,6 +17,7 @@ import (
 	"github.com/hussein/ai-salesperson/internal/config"
 	"github.com/hussein/ai-salesperson/internal/errtrack"
 	"github.com/hussein/ai-salesperson/internal/inbound"
+	"github.com/hussein/ai-salesperson/internal/intelligence"
 	"github.com/hussein/ai-salesperson/internal/jobs"
 	"github.com/hussein/ai-salesperson/internal/queue"
 	"github.com/hussein/ai-salesperson/internal/ratelimit"
@@ -28,6 +29,7 @@ type API struct {
 	cfg    config.Config
 	store  store.Store
 	sales  *sales.Service
+	intel  *intelligence.Service
 	jobs   *jobs.Runner
 	queue  *queue.Queue
 	poller *inbound.Poller
@@ -37,11 +39,11 @@ type API struct {
 
 // New builds the HTTP handler. rl is the shared rate limiter (nil picks an
 // in-process one, matching the behaviour before this was configurable).
-func New(cfg config.Config, st store.Store, svc *sales.Service, jr *jobs.Runner, q *queue.Queue, poller *inbound.Poller, stripe *billing.Stripe, rl ratelimit.Limiter) http.Handler {
+func New(cfg config.Config, st store.Store, svc *sales.Service, intel *intelligence.Service, jr *jobs.Runner, q *queue.Queue, poller *inbound.Poller, stripe *billing.Stripe, rl ratelimit.Limiter) http.Handler {
 	if rl == nil {
 		rl = ratelimit.NewMemory()
 	}
-	a := &API{cfg: cfg, store: st, sales: svc, jobs: jr, queue: q, poller: poller, stripe: stripe, rl: rl}
+	a := &API{cfg: cfg, store: st, sales: svc, intel: intel, jobs: jr, queue: q, poller: poller, stripe: stripe, rl: rl}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", a.healthz)
@@ -73,6 +75,11 @@ func New(cfg config.Config, st store.Store, svc *sales.Service, jr *jobs.Runner,
 	authed("GET /v1/dashboard", a.dashboard)
 	authed("POST /v1/onboarding/analyze", a.analyzeWebsite)
 	authed("GET /v1/sources", a.listSources)
+
+	authed("POST /v1/intelligence/analyze", a.startIntelligence)
+	authed("GET /v1/intelligence/reports", a.listReports)
+	authed("GET /v1/intelligence/reports/{id}", a.getReport)
+	authed("DELETE /v1/intelligence/reports/{id}", a.deleteReport)
 
 	authed("GET /v1/settings", a.getSettings)
 	authed("PUT /v1/settings", a.putSettings)
@@ -225,11 +232,11 @@ func fail(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusNotFound, "not found")
 	case errors.Is(err, store.ErrConflict):
 		writeErr(w, http.StatusConflict, "already exists")
-	case errors.Is(err, sales.ErrInvalid):
+	case errors.Is(err, sales.ErrInvalid), errors.Is(err, intelligence.ErrInvalid):
 		writeErr(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, sales.ErrPrecondition):
 		writeErr(w, http.StatusConflict, err.Error())
-	case errors.Is(err, sales.ErrLimit):
+	case errors.Is(err, sales.ErrLimit), errors.Is(err, intelligence.ErrLimit):
 		writeErr(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, queue.ErrBusy):
 		writeErr(w, http.StatusServiceUnavailable, "server is busy, try again shortly")

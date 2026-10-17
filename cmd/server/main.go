@@ -18,6 +18,7 @@ import (
 	"github.com/hussein/ai-salesperson/internal/httpapi"
 	"github.com/hussein/ai-salesperson/internal/inbound"
 	"github.com/hussein/ai-salesperson/internal/integrations"
+	"github.com/hussein/ai-salesperson/internal/intelligence"
 	"github.com/hussein/ai-salesperson/internal/jobs"
 	"github.com/hussein/ai-salesperson/internal/queue"
 	"github.com/hussein/ai-salesperson/internal/ratelimit"
@@ -92,7 +93,8 @@ func main() {
 		channels.Tenant{AllowPrivate: cfg.AllowPrivateNet, DevLog: cfg.DevLogChannels},
 		web, sources.Factory{Contact: cfg.PublicURL}, integrations.New(cfg.AllowPrivateNet), cfg.PublicURL)
 	poller := &inbound.Poller{Store: st, Handler: svc, AllowPrivate: cfg.AllowPrivateNet}
-	runner := &jobs.Runner{Q: q, Sales: svc, Store: st, Poller: poller}
+	intel := intelligence.New(st, provider)
+	runner := &jobs.Runner{Q: q, Sales: svc, Store: st, Poller: poller, Intel: intel}
 	runner.Register()
 	q.Start(ctx, cfg.Workers)
 
@@ -117,7 +119,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpapi.New(cfg, st, svc, runner, q, poller, stripe, rl),
+		Handler:           httpapi.New(cfg, st, svc, intel, runner, q, poller, stripe, rl),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      3 * time.Minute, // AI calls are slow

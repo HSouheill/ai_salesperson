@@ -24,12 +24,24 @@ func (a *Anthropic) Complete(ctx context.Context, r Request) (string, error) {
 	if r.MaxTokens == 0 {
 		r.MaxTokens = 2048
 	}
-	body, _ := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"model":      a.model,
 		"max_tokens": r.MaxTokens,
 		"system":     r.System,
 		"messages":   []map[string]string{{"role": "user", "content": r.Prompt}},
-	})
+	}
+	if r.WebSearch {
+		max := r.MaxSearches
+		if max <= 0 {
+			max = 5
+		}
+		// Claude's server-side web search tool: Anthropic itself issues and
+		// executes the searches (no client-side tool loop to drive), and
+		// returns the synthesized answer as ordinary "text" content blocks
+		// alongside the search-tool blocks we skip below.
+		payload["tools"] = []map[string]any{{"type": "web_search_20250305", "name": "web_search", "max_uses": max}}
+	}
+	body, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL+"/v1/messages", bytes.NewReader(body))
 	if err != nil {
 		return "", err

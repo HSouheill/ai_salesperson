@@ -23,6 +23,7 @@ import (
 	"github.com/hussein/ai-salesperson/internal/httpapi"
 	"github.com/hussein/ai-salesperson/internal/inbound"
 	"github.com/hussein/ai-salesperson/internal/integrations"
+	"github.com/hussein/ai-salesperson/internal/intelligence"
 	"github.com/hussein/ai-salesperson/internal/jobs"
 	"github.com/hussein/ai-salesperson/internal/queue"
 	"github.com/hussein/ai-salesperson/internal/ratelimit"
@@ -149,14 +150,16 @@ func newEnvWith(t *testing.T, o opts) *env {
 	ctx, cancel := context.WithCancel(context.Background())
 	q := queue.NewMemory(64)
 	poller := &inbound.Poller{Store: st, Handler: svc, AllowPrivate: true}
-	runner := &jobs.Runner{Q: q, Sales: svc, Store: st, Poller: poller}
+	intel := intelligence.New(st, provider)
+	intel.Now = clock.Now
+	runner := &jobs.Runner{Q: q, Sales: svc, Store: st, Poller: poller, Intel: intel}
 	runner.Register()
 	q.Start(ctx, 2)
 	stripe := o.stripe
 	if stripe == nil {
 		stripe = &billing.Stripe{}
 	}
-	srv := httptest.NewServer(httpapi.New(cfg, st, svc, runner, q, poller, stripe, ratelimit.NewMemory()))
+	srv := httptest.NewServer(httpapi.New(cfg, st, svc, intel, runner, q, poller, stripe, ratelimit.NewMemory()))
 	t.Cleanup(func() { srv.Close(); cancel(); q.Close() })
 	return &env{t: t, srv: srv, ch: fc, st: st, svc: svc, clock: clock, q: q, run: runner}
 }

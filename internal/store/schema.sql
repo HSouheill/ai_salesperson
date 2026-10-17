@@ -62,3 +62,12 @@ CREATE TABLE IF NOT EXISTS api_keys (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS api_keys_org ON api_keys (org_id);
+
+-- Company Intelligence reports (web-search gap analysis). state = status
+-- (running/done/failed); ref_id unused.
+CREATE TABLE IF NOT EXISTS reports (
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES orgs(id),
+    ref_id TEXT NOT NULL DEFAULT '', state TEXT NOT NULL, data JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS reports_org ON reports (org_id, created_at);

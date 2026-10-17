@@ -21,6 +21,7 @@ type Memory struct {
 	agents    map[string]row[domain.Agent]
 	prospects map[string]row[domain.Prospect]
 	messages  map[string]row[domain.Message]
+	reports   map[string]row[domain.IntelligenceReport]
 }
 
 type row[T any] struct {
@@ -37,6 +38,7 @@ func NewMemory() *Memory {
 		agents:    map[string]row[domain.Agent]{},
 		prospects: map[string]row[domain.Prospect]{},
 		messages:  map[string]row[domain.Message]{},
+		reports:   map[string]row[domain.IntelligenceReport]{},
 	}
 }
 
@@ -375,6 +377,35 @@ func (m *Memory) GetMessage(_ context.Context, org, id string) (domain.Message, 
 }
 func (m *Memory) ListMessages(_ context.Context, org string, f MessageFilter) ([]domain.Message, error) {
 	return list(m, m.messages, org, f.ProspectID, string(f.Status), false), nil
+}
+
+func (m *Memory) PutReport(_ context.Context, r domain.IntelligenceReport) error {
+	return put(m, m.reports, r.ID, r.OrgID, "", string(r.Status), r)
+}
+func (m *Memory) GetReport(_ context.Context, org, id string) (domain.IntelligenceReport, error) {
+	return get(m, m.reports, org, id)
+}
+func (m *Memory) ListReports(_ context.Context, org string) ([]domain.IntelligenceReport, error) {
+	return list(m, m.reports, org, "", "", true), nil
+}
+func (m *Memory) CountReportsSince(_ context.Context, org string, since time.Time) (int, error) {
+	n := 0
+	for _, r := range list(m, m.reports, org, "", "", true) {
+		if !r.CreatedAt.Before(since) {
+			n++
+		}
+	}
+	return n, nil
+}
+func (m *Memory) DeleteReport(_ context.Context, org, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.reports[id]
+	if !ok || r.org != org {
+		return ErrNotFound
+	}
+	delete(m.reports, id)
+	return nil
 }
 
 func (m *Memory) Counts(_ context.Context, org string) (Counts, error) {

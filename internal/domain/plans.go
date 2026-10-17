@@ -10,20 +10,27 @@ type Limits struct {
 	Integrations bool // CRM webhook / HubSpot push
 	APIAccess    bool // API keys
 	WhiteLabel   bool // agency: client organizations and branding
+	// CompanyIntelligence gates the web-search gap-analysis tool (real web
+	// search + deep reasoning is among the most expensive operations in the
+	// app). MonthlyReports caps usage within that, 0 = not available.
+	CompanyIntelligence bool
+	MonthlyReports      int
 }
 
 func (p Plan) Limits() Limits {
 	switch p {
 	case PlanGrowth:
-		return Limits{MaxAgents: 3, MaxProspects: 5000, DailySends: 100}
+		return Limits{MaxAgents: 3, MaxProspects: 5000, DailySends: 100, CompanyIntelligence: true, MonthlyReports: 20}
 	case PlanPro:
-		return Limits{MaxAgents: 10, MaxProspects: 50000, DailySends: 500, AutoSend: true, Integrations: true, APIAccess: true}
+		return Limits{MaxAgents: 10, MaxProspects: 50000, DailySends: 500, AutoSend: true, Integrations: true, APIAccess: true,
+			CompanyIntelligence: true, MonthlyReports: 100}
 	case PlanEnterprise:
-		return Limits{MaxAgents: 100, MaxProspects: 500000, DailySends: 2000, AutoSend: true, Integrations: true, APIAccess: true, WhiteLabel: true}
+		return Limits{MaxAgents: 100, MaxProspects: 500000, DailySends: 2000, AutoSend: true, Integrations: true, APIAccess: true, WhiteLabel: true,
+			CompanyIntelligence: true, MonthlyReports: 500}
 	case PlanStarter:
 		return Limits{MaxAgents: 1, MaxProspects: 500, DailySends: 25}
 	default: // trial
-		return Limits{MaxAgents: 1, MaxProspects: 200, DailySends: 20}
+		return Limits{MaxAgents: 1, MaxProspects: 200, DailySends: 20, CompanyIntelligence: true, MonthlyReports: 3} // a taste, to show the feature off
 	}
 }
 

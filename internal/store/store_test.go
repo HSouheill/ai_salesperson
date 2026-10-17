@@ -333,6 +333,81 @@ func TestAPIKeys(t *testing.T) {
 	})
 }
 
+func TestReports(t *testing.T) {
+	each(t, func(t *testing.T, st Store) {
+		mkOrg(t, st, "a", "a@x.test", nil)
+		mkOrg(t, st, "b", "b@x.test", nil)
+		now := time.Now()
+		r1 := domain.IntelligenceReport{ID: "r1", OrgID: "a", CompanyName: "Acme Co", Status: domain.ReportRunning, CreatedAt: now.Add(-40 * 24 * time.Hour)}
+		r2 := domain.IntelligenceReport{ID: "r2", OrgID: "a", CompanyName: "Acme Co", Status: domain.ReportDone, CreatedAt: now.Add(-1 * time.Hour),
+			Profile:         domain.CompanyProfile{Summary: "A company."},
+			Competitors:     []domain.Competitor{{Name: "Rival", Advantages: []string{"Online ordering"}}},
+			Gaps:            []domain.Gap{{Area: "Online ordering", Severity: domain.SeverityHigh}},
+			Recommendations: []domain.Recommendation{{GapArea: "Online ordering", Effort: domain.EffortMedium, Priority: 1}},
+			Sources:         []domain.ReportSource{{Title: "Acme site", URL: "https://acme.test"}},
+		}
+		if err := st.PutReport(ctx, r1); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.PutReport(ctx, r2); err != nil {
+			t.Fatal(err)
+		}
+
+		got, err := st.GetReport(ctx, "a", "r2")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.CompanyName != "Acme Co" || got.Profile.Summary != "A company." || len(got.Competitors) != 1 ||
+			got.Competitors[0].Name != "Rival" || len(got.Gaps) != 1 || got.Gaps[0].Severity != domain.SeverityHigh ||
+			len(got.Recommendations) != 1 || len(got.Sources) != 1 || got.Sources[0].URL != "https://acme.test" {
+			t.Fatalf("round-trip lost data: %+v", got)
+		}
+
+		// Tenant isolation.
+		if _, err := st.GetReport(ctx, "b", "r1"); !errors.Is(err, ErrNotFound) {
+			t.Errorf("org b read org a's report: %v", err)
+		}
+		if reps, _ := st.ListReports(ctx, "b"); len(reps) != 0 {
+			t.Error("org b sees org a's reports")
+		}
+		hijack := r1
+		hijack.OrgID = "b"
+		if err := st.PutReport(ctx, hijack); !errors.Is(err, ErrNotFound) {
+			t.Errorf("cross-tenant overwrite: %v", err)
+		}
+
+		// Listed newest first.
+		reps, err := st.ListReports(ctx, "a")
+		if err != nil || len(reps) != 2 || reps[0].ID != "r2" || reps[1].ID != "r1" {
+			t.Fatalf("ListReports = %v, %v", reps, err)
+		}
+
+		// Only reports within the rolling window count toward the monthly cap.
+		if n, err := st.CountReportsSince(ctx, "a", now.Add(-30*24*time.Hour)); err != nil || n != 1 {
+			t.Fatalf("CountReportsSince(30d) = %d, %v", n, err)
+		}
+		if n, err := st.CountReportsSince(ctx, "a", now.Add(-60*24*time.Hour)); err != nil || n != 2 {
+			t.Fatalf("CountReportsSince(60d) = %d, %v", n, err)
+		}
+		if n, _ := st.CountReportsSince(ctx, "b", now.Add(-60*24*time.Hour)); n != 0 {
+			t.Errorf("org b's count = %d", n)
+		}
+
+		if err := st.DeleteReport(ctx, "b", "r1"); !errors.Is(err, ErrNotFound) {
+			t.Errorf("org b deleted org a's report: %v", err)
+		}
+		if err := st.DeleteReport(ctx, "a", "r1"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.GetReport(ctx, "a", "r1"); !errors.Is(err, ErrNotFound) {
+			t.Error("deleted report still resolves")
+		}
+		if err := st.DeleteReport(ctx, "a", "r1"); !errors.Is(err, ErrNotFound) {
+			t.Errorf("deleting twice: %v", err)
+		}
+	})
+}
+
 // Credentials must be unreadable in the database itself, and a wrong key must
 // fail loudly rather than return garbage.
 func TestPostgresEncryptsCredentialsAtRest(t *testing.T) {

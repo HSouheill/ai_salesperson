@@ -10,16 +10,18 @@ import (
 
 	"github.com/hussein/ai-salesperson/internal/domain"
 	"github.com/hussein/ai-salesperson/internal/inbound"
+	"github.com/hussein/ai-salesperson/internal/intelligence"
 	"github.com/hussein/ai-salesperson/internal/queue"
 	"github.com/hussein/ai-salesperson/internal/sales"
 	"github.com/hussein/ai-salesperson/internal/store"
 )
 
 const (
-	KindResearch  = "research"
-	KindDiscover  = "discover"
-	KindAutopilot = "autopilot"
-	KindPollInbox = "poll_inbox"
+	KindResearch     = "research"
+	KindDiscover     = "discover"
+	KindAutopilot    = "autopilot"
+	KindPollInbox    = "poll_inbox"
+	KindIntelligence = "intelligence"
 
 	maxResearchPerJob = 500
 )
@@ -29,6 +31,7 @@ type Runner struct {
 	Sales  *sales.Service
 	Store  store.Store
 	Poller *inbound.Poller
+	Intel  *intelligence.Service
 }
 
 type agentPayload struct {
@@ -38,6 +41,10 @@ type agentPayload struct {
 type discoverPayload struct {
 	AgentID string              `json:"agent_id"`
 	Input   sales.DiscoverInput `json:"input"`
+}
+
+type reportPayload struct {
+	ReportID string `json:"report_id"`
 }
 
 // Register attaches the handlers; call before the queue starts.
@@ -81,6 +88,15 @@ func (r *Runner) Register() {
 		rep, err := r.Sales.Autopilot(ctx, j.OrgID, pl.AgentID)
 		p.AddCreated(rep.Discovered + rep.Drafted)
 		p.Step(err)
+		return nil
+	})
+	r.Q.Register(KindIntelligence, func(ctx context.Context, j queue.Job, p queue.Progress) error {
+		var pl reportPayload
+		if err := json.Unmarshal(j.Payload, &pl); err != nil {
+			return err
+		}
+		p.SetTotal(1)
+		p.Step(r.Intel.RunAnalysis(ctx, j.OrgID, pl.ReportID))
 		return nil
 	})
 	r.Q.Register(KindPollInbox, func(ctx context.Context, j queue.Job, p queue.Progress) error {
@@ -132,4 +148,11 @@ func (r *Runner) PollInbox(ctx context.Context, orgID string, ttl time.Duration)
 		key = "poll:" + orgID
 	}
 	return r.enqueue(ctx, orgID, KindPollInbox, struct{}{}, key, ttl)
+}
+
+// Analyze queues the web-research step for a report already created (as
+// "running") by intelligence.Service.StartReport.
+func (r *Runner) Analyze(ctx context.Context, orgID, reportID string) (queue.Job, error) {
+	j, _, err := r.enqueue(ctx, orgID, KindIntelligence, reportPayload{reportID}, "", 0)
+	return j, err
 }
