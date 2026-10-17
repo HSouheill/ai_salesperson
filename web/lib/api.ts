@@ -1,5 +1,5 @@
 import type {
-  Agent, APIKey, BusinessProfile, Branding, CheckResult, ClientView, Job, Me, Message, OrgSettings, PlanInfo,
+  Agent, APIKey, BusinessProfile, Branding, CheckResult, ClientView, IntelligenceReport, Job, Me, Message, OrgSettings, PlanInfo,
   PlanName, Prospect, ReplyResult, SettingsResponse, Stats, Targeting, Org,
 } from "./types";
 
@@ -76,6 +76,12 @@ export const api = {
   dashboard: () => get<Stats>("/v1/dashboard"),
   analyzeWebsite: (website: string) => post<BusinessProfile>("/v1/onboarding/analyze", { website }),
   sources: () => get<string[]>("/v1/sources"),
+
+  analyzeCompany: (company_name: string, website?: string) =>
+    post<{ report: IntelligenceReport; job: Job }>("/v1/intelligence/analyze", { company_name, website }),
+  reports: () => get<IntelligenceReport[]>("/v1/intelligence/reports"),
+  report: (id: string) => get<IntelligenceReport>(`/v1/intelligence/reports/${id}`),
+  deleteReport: (id: string) => request<void>("DELETE", `/v1/intelligence/reports/${id}`),
 
   settings: () => get<SettingsResponse>("/v1/settings"),
   saveSettings: (s: OrgSettings) => put<SettingsResponse>("/v1/settings", s),

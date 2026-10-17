@@ -57,6 +57,12 @@ DATABASE_URL=… SECRETS_KEY=… go run ./cmd/server set-plan owner@agency.com e
 - **AI gateway**: Anthropic and any OpenAI-compatible server, retry with backoff, optional automatic fallback.
 - **One-click unsubscribe** (RFC 8058): outbound email carries `List-Unsubscribe`/`List-Unsubscribe-Post`, which Gmail
   and Yahoo require of bulk senders or they throttle/junk the mail. The link is a signed, auth-free, per-prospect token.
+- **Company Intelligence** (`internal/intelligence`, `/intelligence` in the dashboard): given any company name — the
+  customer's own business, a prospect, or a named competitor — the AI searches the live web (Claude's native web
+  search tool, no separate search-API key), collects a profile, identifies real named competitors and what they
+  concretely do better, and turns that into prioritized, evidenced recommendations. Growth plan and above (Trial gets
+  3 reports/30 days to try it; Starter doesn't include it); a report is created immediately as "running" so the page
+  can be reached right away, then filled in as the research finishes.
 
 ## Security
 
@@ -86,6 +92,7 @@ GET|POST /agents    GET|PUT /agents/{id}   POST /agents/{id}/brain|status|resear
 POST|GET /agents/{id}/prospects (JSON or text/csv)        GET /prospects/{id}
 POST /prospects/{id}/research|outreach|replies|meeting|convert|lost    PUT /prospects/{id}/deal
 GET /messages?status=…   POST /messages/{id}/review        GET /dashboard   GET /jobs/{id}
+POST /intelligence/analyze  GET /intelligence/reports  GET|DELETE /intelligence/reports/{id}   (Growth+)
 GET|POST /clients  PUT /clients/{id}  POST /clients/{id}/login  POST /clients/exit    (Enterprise agencies)
 GET|POST /api-keys  DELETE /api-keys/{id}                                (Pro+)
 POST /billing/checkout|portal                                            POST /billing/webhook (Stripe)
@@ -134,7 +141,13 @@ near-instantly); budget for real model latency separately once you're sending li
 
 ## Limits and honest caveats
 
-- **Plan limits are placeholders** (`internal/domain/plans.go`): agents, prospects, daily sends. Tune them against real costs.
+- **Plan limits are placeholders** (`internal/domain/plans.go`): agents, prospects, daily sends, Company Intelligence
+  monthly report caps. Tune them against real costs.
+- **Company Intelligence's web search could not be live-verified** in the sandbox this was built in (the available
+  Anthropic credential was a Claude-Code-internal one, rejected by a direct API call). It's built to Anthropic's
+  documented `web_search_20250305` tool schema and tested against a server returning that exact response shape — do
+  one real smoke test with a real `ANTHROPIC_API_KEY` before relying on it. OpenAI-compatible providers fall back to
+  answering from the prompt alone (no web search), which is a real accuracy gap for that provider, not just untested.
 - **Verified locally** against fakes: SMTP, IMAP (in-memory server), WhatsApp, Stripe, HubSpot, Google Places, OpenStreetMap,
   Redis (miniredis). **Not yet run against the live services**: do a smoke test with real accounts before launch.
 - **WhatsApp**: business-started chats need a Meta-approved template with one variable; customers must have opt-in.

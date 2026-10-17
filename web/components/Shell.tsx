@@ -49,6 +49,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     { href: "/", label: "Dashboard" },
     { href: "/agents", label: "Sales agents" },
     { href: "/approvals", label: "Approvals" },
+    { href: "/intelligence", label: "Intelligence" },
     ...(me.limits.WhiteLabel && !me.is_client && !me.agency_session ? [{ href: "/clients", label: "Clients" }] : []),
     { href: "/settings", label: "Settings" },
     ...(!me.is_client && !me.agency_session ? [{ href: "/billing", label: "Billing" }] : []),

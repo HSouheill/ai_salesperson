@@ -55,6 +55,7 @@ export type PlanName = "trial" | "starter" | "growth" | "pro" | "enterprise";
 export interface Limits {
   MaxAgents: number; MaxProspects: number; DailySends: number;
   AutoSend: boolean; Integrations: boolean; APIAccess: boolean; WhiteLabel: boolean;
+  CompanyIntelligence: boolean; MonthlyReports: number;
 }
 export interface Branding { product_name?: string; logo_url?: string; primary_color?: string }
 export interface Org {
@@ -86,3 +87,24 @@ export interface SettingsResponse {
 export interface CheckResult { configured: boolean; ok: boolean; error?: string }
 export interface APIKey { id: string; name: string; prefix: string; created_at: string }
 export interface ClientView { org: Org; stats: Stats }
+
+// Company Intelligence: AI web research + competitor gap analysis.
+export type ReportStatus = "running" | "done" | "failed";
+export type Severity = "high" | "medium" | "low";
+export type Effort = "low" | "medium" | "high";
+
+export interface CompanyProfile {
+  summary: string; industry?: string; products?: string[]; services?: string[];
+  target_market?: string; locations?: string[]; founded_year?: string; company_size?: string;
+  value_proposition?: string; strengths?: string[]; signals?: string[];
+}
+export interface Competitor { name: string; website?: string; summary: string; advantages: string[] }
+export interface Gap { area: string; description: string; severity: Severity; evidence: string }
+export interface Recommendation { gap_area: string; action: string; impact: string; effort: Effort; priority: number }
+export interface ReportSource { title: string; url: string }
+export interface IntelligenceReport {
+  id: string; org_id: string; company_name: string; website?: string;
+  status: ReportStatus; error?: string; created_at: string; completed_at?: string;
+  profile: CompanyProfile; competitors?: Competitor[]; gaps?: Gap[];
+  recommendations?: Recommendation[]; sources?: ReportSource[];
+}
